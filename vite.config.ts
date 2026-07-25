@@ -4,13 +4,13 @@ import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import { fileURLToPath, URL } from 'node:url'
 
-// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
     vue(),
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      injectRegister: 'script-defer',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
       manifest: {
         name: 'Catatan Keuangan',
@@ -18,7 +18,9 @@ export default defineConfig({
         description: 'Aplikasi Keuangan Pribadi & Warung Offline-First',
         theme_color: '#4f46e5',
         background_color: '#f8fafc',
-        display: 'standalone',
+        display: 'standalone', // Ini kunci agar tidak ada search bar / URL bar!
+        start_url: '/',
+        scope: '/',
         icons: [
           {
             src: '/pwa-192x192.png',
@@ -37,6 +39,9 @@ export default defineConfig({
             purpose: 'any maskable'
           }
         ]
+      },
+      devOptions: {
+        enabled: true
       }
     })
   ],
