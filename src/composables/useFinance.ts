@@ -1,10 +1,11 @@
 // src/composables/useFinance.ts
 import { db } from '@/db/db';
+import { syncToCloud } from '@/services/syncService';
 import { useObservable } from '@vueuse/rxjs';
 import { liveQuery } from 'dexie';
 
 export function useFinance() {
-  // 1. Live Queries (Otomatis Sync ke UI)
+  // 1. Live Queries (Otomatis Sync ke UI Vue secara Reaktif)
   const wallets = useObservable(
     liveQuery(() => db.wallets.toArray())
   );
@@ -44,7 +45,7 @@ export function useFinance() {
       await db.wallets.update(lenderWalletId, { balance: lender.balance - amount });
       await db.wallets.update(borrowerWalletId, { balance: borrower.balance + amount });
 
-      // Catat Utang
+      // Catat Utang Internal
       await db.debts.add({
         fromWalletId: borrowerWalletId,
         toWalletId: lenderWalletId,
@@ -64,6 +65,9 @@ export function useFinance() {
         date
       });
     });
+
+    // Otomatis sinkronisasi ke Supabase
+    syncToCloud();
   }
 
   // 3. Fungsi Bayar Utang Internal
@@ -96,6 +100,9 @@ export function useFinance() {
         date
       });
     });
+
+    // Otomatis sinkronisasi ke Supabase
+    syncToCloud();
   }
 
   // 4. Transaksi Reguler (Pengeluaran / Pemasukan / Transfer)
@@ -138,9 +145,12 @@ export function useFinance() {
         date: txDate
       });
     });
+
+    // Otomatis sinkronisasi ke Supabase
+    syncToCloud();
   }
 
-  // 5. Fitur Backup & Restore (JSON)
+  // 5. Fitur Backup & Restore (JSON Manual)
   async function exportBackup() {
     const walletsData = await db.wallets.toArray();
     const categoriesData = await db.categories.toArray();
@@ -191,6 +201,8 @@ export function useFinance() {
             if (parsed.debts?.length) await db.debts.bulkAdd(parsed.debts);
           });
 
+          // Sinkronisasi data yang di-restore ke cloud
+          syncToCloud();
           resolve();
         } catch (err) {
           reject(err);

@@ -20,10 +20,10 @@ const notes = ref<string>('')
 const transactionDate = ref<string>(getCurrentLocalDateTime())
 const isSubmitting = ref(false)
 
-// Filter dompet: Sembunyikan RDN jika tipe transaksi adalah Pemasukan
+// Filter dompet: Sembunyikan RDN jika Pemasukan ATAU Pengeluaran
 const availableWallets = computed(() => {
   if (!wallets.value) return []
-  if (type.value === 'income') {
+  if (type.value === 'income' || type.value === 'expense') {
     return wallets.value.filter(w => !w.name.toLowerCase().includes('rdn'))
   }
   return wallets.value
@@ -36,18 +36,18 @@ const isWarungWallet = computed(() => {
   return selected?.name.toLowerCase().includes('warung') ?? false
 })
 
-// Kunci kategori ke "Warung" jika Pemasukan ke Rekening Warung
-watch([type, walletId], ([newType]) => {
-  if (newType === 'income' && isWarungWallet.value) {
+// Kunci kategori ke "Warung" jika dompet Rekening Warung dipilih (Pemasukan / Pengeluaran)
+watch([type, walletId], () => {
+  if ((type.value === 'income' || type.value === 'expense') && isWarungWallet.value) {
     category.value = 'Warung'
-  } else if (newType === 'income' && category.value === 'Warung' && !isWarungWallet.value) {
+  } else if (category.value === 'Warung' && !isWarungWallet.value) {
     category.value = ''
   }
 })
 
-// Apabila pindah ke tab 'Pemasukan' dan RDN sedang terpilih, alihkan ke dompet pertama
+// Apabila pindah ke tab 'Pemasukan'/'Pengeluaran' dan RDN sedang terpilih, alihkan dompet ke pilihan aman pertama
 watch(type, (newType) => {
-  if (newType === 'income' && walletId.value) {
+  if ((newType === 'income' || newType === 'expense') && walletId.value) {
     const selected = wallets.value?.find(w => w.id === walletId.value)
     if (selected?.name.toLowerCase().includes('rdn')) {
       const firstValid = availableWallets.value[0]
@@ -69,7 +69,7 @@ const filteredCategories = computed(() => {
 
 const handleTypeChange = (newType: 'expense' | 'income' | 'transfer' | 'borrow') => {
   type.value = newType
-  if (newType === 'income' && isWarungWallet.value) {
+  if ((newType === 'income' || newType === 'expense') && isWarungWallet.value) {
     category.value = 'Warung'
   } else {
     category.value = ''
@@ -85,7 +85,10 @@ const handleSubmit = async () => {
     return alert('Pilih dompet pasangan/tujuan!')
   }
 
-  const finalCategory = (type.value === 'income' && isWarungWallet.value) ? 'Warung' : category.value
+  // Tentukan kategori akhir
+  const finalCategory = ((type.value === 'income' || type.value === 'expense') && isWarungWallet.value) 
+    ? 'Warung' 
+    : category.value
 
   if ((type.value === 'expense' || type.value === 'income') && !finalCategory) {
     return alert('Pilih kategori!')
@@ -234,12 +237,12 @@ const handleSubmit = async () => {
     <div v-if="type === 'expense' || type === 'income'">
       <label class="block text-xs font-medium text-gray-500 mb-1">Kategori</label>
       
-      <!-- Info Otomatis jika Pemasukan Rekening Warung -->
-      <div v-if="type === 'income' && isWarungWallet" class="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-700 font-medium">
-        ⚡ Otomatis dicatat sebagai pendapatan <strong>Warung</strong>.
+      <!-- Info Otomatis jika Rekening Warung (Pengeluaran maupun Pemasukan) -->
+      <div v-if="isWarungWallet" class="p-2.5 bg-indigo-50 border border-indigo-200 rounded-lg text-xs text-indigo-700 font-medium">
+        ⚡ Otomatis dicatat sebagai transaksi <strong>Warung</strong>.
       </div>
 
-      <!-- Pilih Kategori Biasa -->
+      <!-- Pilih Kategori Biasa untuk Dompet Lain -->
       <div v-else class="grid grid-cols-3 gap-1.5 max-h-36 overflow-y-auto p-1 border rounded-lg">
         <button
           v-for="cat in filteredCategories"
@@ -260,7 +263,7 @@ const handleSubmit = async () => {
       <input 
         v-model="notes"
         type="text"
-        placeholder="Misal: Omzet Harian, Nasi Goreng, dll"
+        placeholder="Misal: Belanja Stok, Omzet Harian, Beli Bensin, dll"
         class="w-full p-2 border rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500"
       />
     </div>
