@@ -5,6 +5,12 @@
     "types": ["vite/client"],
     "allowArbitraryExtensions": true,
 
+    /* Path Alias Setup */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+
     /* Linting */
     "noUnusedLocals": true,
     "noUnusedParameters": true,
