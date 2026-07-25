@@ -140,7 +140,68 @@ export function useFinance() {
     });
   }
 
-  // 5. Helper Formatter Angka
+  // 5. Fitur Backup & Restore (JSON)
+  async function exportBackup() {
+    const walletsData = await db.wallets.toArray();
+    const categoriesData = await db.categories.toArray();
+    const transactionsData = await db.transactions.toArray();
+    const debtsData = await db.debts.toArray();
+
+    const backupObj = {
+      version: 2,
+      exportedAt: new Date().toISOString(),
+      wallets: walletsData,
+      categories: categoriesData,
+      transactions: transactionsData,
+      debts: debtsData
+    };
+
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupObj, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `backup_keuangan_${new Date().toISOString().slice(0, 10)}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  }
+
+  async function importBackup(file: File) {
+    return new Promise<void>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const content = e.target?.result as string;
+          const parsed = JSON.parse(content);
+
+          if (!parsed.wallets || !parsed.transactions) {
+            throw new Error('Format file backup tidak valid');
+          }
+
+          await db.transaction('rw', [db.wallets, db.categories, db.transactions, db.debts], async () => {
+            // Bersihkan data lama
+            await db.wallets.clear();
+            await db.categories.clear();
+            await db.transactions.clear();
+            await db.debts.clear();
+
+            // Masukkan data restore
+            if (parsed.wallets?.length) await db.wallets.bulkAdd(parsed.wallets);
+            if (parsed.categories?.length) await db.categories.bulkAdd(parsed.categories);
+            if (parsed.transactions?.length) await db.transactions.bulkAdd(parsed.transactions);
+            if (parsed.debts?.length) await db.debts.bulkAdd(parsed.debts);
+          });
+
+          resolve();
+        } catch (err) {
+          reject(err);
+        }
+      };
+      reader.onerror = () => reject(new Error('Gagal membaca file'));
+      reader.readAsText(file);
+    });
+  }
+
+  // 6. Helper Formatter Angka
   const formatRupiah = (val: number) => {
     return new Intl.NumberFormat('id-ID', {
       style: 'currency',
@@ -157,6 +218,8 @@ export function useFinance() {
     borrowMoney,
     payDebt,
     addTransaction,
+    exportBackup,
+    importBackup,
     formatRupiah
   };
 }
