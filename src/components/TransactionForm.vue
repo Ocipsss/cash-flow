@@ -10,10 +10,16 @@ const props = defineProps<{
 const emit = defineEmits(['close', 'saved'])
 const { wallets, categories, addTransaction, updateTransaction, borrowMoney, formatRupiah } = useFinance()
 
-const getCurrentLocalDateTime = (isoString?: string) => {
-  const dateObj = isoString ? new Date(isoString) : new Date()
-  const offset = dateObj.getTimezoneOffset() * 60000
-  return new Date(dateObj.getTime() - offset).toISOString().slice(0, 16)
+// Format tanggal & waktu lokal presisi tanpa geser timezone UTC
+const formatToLocalDateTime = (isoString?: string) => {
+  const d = isoString ? new Date(isoString) : new Date()
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  const year = d.getFullYear()
+  const month = pad(d.getMonth() + 1)
+  const day = pad(d.getDate())
+  const hours = pad(d.getHours())
+  const minutes = pad(d.getMinutes())
+  return `${year}-${month}-${day}T${hours}:${minutes}`
 }
 
 const type = ref<'expense' | 'income' | 'transfer' | 'borrow'>('expense')
@@ -22,13 +28,11 @@ const targetWalletId = ref<string | null>(null)
 const category = ref<string>('')
 const amount = ref<number | null>(null)
 const notes = ref<string>('')
-const transactionDate = ref<string>(getCurrentLocalDateTime())
+const transactionDate = ref<string>(formatToLocalDateTime())
 const isSubmitting = ref(false)
 
-// Cek status Mode Edit
 const isEditMode = computed(() => !!props.editingTransaction)
 
-// Autofill data lama jika sedang dalam mode edit
 onMounted(() => {
   if (props.editingTransaction) {
     const tx = props.editingTransaction
@@ -38,11 +42,10 @@ onMounted(() => {
     category.value = tx.category || ''
     amount.value = tx.amount
     notes.value = tx.notes || ''
-    transactionDate.value = getCurrentLocalDateTime(tx.date)
+    transactionDate.value = formatToLocalDateTime(tx.date)
   }
 })
 
-// Filter dompet: Sembunyikan RDN jika Pemasukan ATAU Pengeluaran
 const availableWallets = computed(() => {
   if (!wallets.value) return []
   if (type.value === 'income' || type.value === 'expense') {
@@ -51,9 +54,11 @@ const availableWallets = computed(() => {
   return wallets.value
 })
 
-// Default walletId pertama secara otomatis jika belum terpilih
+// PENTING: Kunci watcher agar TIDAK MENIMPA walletId kalau lagi Mode Edit!
 watch(availableWallets, (newWallets) => {
-  if (newWallets && newWallets.length > 0 && !isEditMode.value) {
+  if (isEditMode.value) return // Skip auto-select kalau lagi edit
+  
+  if (newWallets && newWallets.length > 0) {
     const exists = newWallets.some(w => w.id === walletId.value)
     if (!walletId.value || !exists) {
       walletId.value = newWallets[0].id
@@ -61,14 +66,12 @@ watch(availableWallets, (newWallets) => {
   }
 }, { immediate: true })
 
-// Cek apakah dompet yang dipilih adalah "Rekening Warung"
 const isWarungWallet = computed(() => {
   if (!walletId.value || !wallets.value) return false
   const selected = wallets.value.find(w => w.id === walletId.value)
   return selected?.name.toLowerCase().includes('warung') ?? false
 })
 
-// Kunci kategori ke "Warung" jika dompet Rekening Warung dipilih
 watch([type, walletId], () => {
   if ((type.value === 'income' || type.value === 'expense') && isWarungWallet.value) {
     category.value = 'Warung'
@@ -114,13 +117,13 @@ const handleSubmit = async () => {
   }
   if (!amount.value || amount.value <= 0) return alert('Nominal harus lebih dari 0!')
 
+  // Konversi input datetime-local ke ISO String yang presisi
   const selectedDate = new Date(transactionDate.value).toISOString()
 
   try {
     isSubmitting.value = true
 
     if (isEditMode.value && props.editingTransaction?.id) {
-      // PERBAIKAN: Mode Edit Transaksi
       await updateTransaction(props.editingTransaction.id, {
         type: type.value as 'income' | 'expense' | 'transfer',
         walletId: walletId.value,
@@ -131,7 +134,6 @@ const handleSubmit = async () => {
         date: selectedDate
       })
     } else {
-      // Mode Tambah Transaksi Baru
       if (type.value === 'borrow') {
         await borrowMoney(walletId.value, targetWalletId.value, amount.value, notes.value, selectedDate)
       } else {
@@ -155,6 +157,7 @@ const handleSubmit = async () => {
   }
 }
 </script>
+
 
 <template>
   <div class="bg-white p-4 rounded-t-2xl sm:rounded-xl shadow-lg space-y-4 max-w-md w-full mx-auto">
