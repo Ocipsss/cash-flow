@@ -1,55 +1,59 @@
-index.html:
-<!DOCTYPE html>
-<html lang="id">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" href="/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Catatan Keuangan</title>
-
-    <!-- Meta Tag PWA Wajib -->
-    <meta name="theme-color" content="#4f46e5" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Keuangan" />
-    <link rel="apple-touch-icon" href="/pwa-192x192.png" />
-  </head>
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.ts"></script>
-  </body>
-</html>
-
-
-
 src/components/TransactionForm.vue:
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useFinance } from '@/composables/useFinance'
+import type { Transaction } from '@/db/db'
+
+const props = defineProps<{
+  editingTransaction?: Transaction | null
+}>()
 
 const emit = defineEmits(['close', 'saved'])
-const { wallets, categories, addTransaction, borrowMoney, formatRupiah } = useFinance()
+const { wallets, categories, addTransaction, updateTransaction, borrowMoney, formatRupiah } = useFinance()
 
-const getCurrentLocalDateTime = () => {
-  const now = new Date()
-  const offset = now.getTimezoneOffset() * 60000
-  return new Date(now.getTime() - offset).toISOString().slice(0, 16)
+// Helper format tanggal ke format 'YYYY-MM-DDTHH:mm' (Lokal WIB)
+const formatToLocalDateTime = (isoString?: string) => {
+  const d = isoString ? new Date(isoString) : new Date()
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  const year = d.getFullYear()
+  const month = pad(d.getMonth() + 1)
+  const day = pad(d.getDate())
+  const hours = pad(d.getHours())
+  const minutes = pad(d.getMinutes())
+  return `${year}-${month}-${day}T${hours}:${minutes}`
 }
 
 const type = ref<'expense' | 'income' | 'transfer' | 'borrow'>('expense')
-
-// Perubahan: Tipe ID menjadi string | null
 const walletId = ref<string | null>(null)
 const targetWalletId = ref<string | null>(null)
-
 const category = ref<string>('')
 const amount = ref<number | null>(null)
 const notes = ref<string>('')
-const transactionDate = ref<string>(getCurrentLocalDateTime())
+const transactionDate = ref<string>(formatToLocalDateTime())
 const isSubmitting = ref(false)
 
-// Filter dompet: Sembunyikan RDN jika Pemasukan ATAU Pengeluaran
+const isEditMode = computed(() => !!props.editingTransaction)
+
+// REVISI PENTING: Gunakan Watcher untuk mengawasi Perubahan Prop Transaction yang Di-edit!
+watch(() => props.editingTransaction, (tx) => {
+  if (tx) {
+    type.value = tx.type === 'debt_repayment' ? 'expense' : tx.type
+    walletId.value = tx.walletId
+    targetWalletId.value = tx.targetWalletId || null
+    category.value = tx.category || ''
+    amount.value = tx.amount
+    notes.value = tx.notes || ''
+    transactionDate.value = formatToLocalDateTime(tx.date)
+  } else {
+    // Mode Tambah Baru: Reset Form
+    type.value = 'expense'
+    category.value = ''
+    amount.value = null
+    notes.value = ''
+    transactionDate.value = formatToLocalDateTime()
+  }
+}, { immediate: true })
+
 const availableWallets = computed(() => {
   if (!wallets.value) return []
   if (type.value === 'income' || type.value === 'expense') {
@@ -58,28 +62,30 @@ const availableWallets = computed(() => {
   return wallets.value
 })
 
-// Cek apakah dompet yang dipilih adalah "Rekening Warung"
+// Pasang default walletId HANYA jika bukan mode edit
+watch(availableWallets, (newWallets) => {
+  if (isEditMode.value) return
+  if (newWallets && newWallets.length > 0) {
+    const exists = newWallets.some(w => w.id === walletId.value)
+    if (!walletId.value || !exists) {
+      walletId.value = newWallets[0].id
+    }
+  }
+}, { immediate: true })
+
 const isWarungWallet = computed(() => {
   if (!walletId.value || !wallets.value) return false
   const selected = wallets.value.find(w => w.id === walletId.value)
   return selected?.name.toLowerCase().includes('warung') ?? false
 })
 
-// Kunci kategori ke "Warung" jika dompet Rekening Warung dipilih
 watch([type, walletId], () => {
   if ((type.value === 'income' || type.value === 'expense') && isWarungWallet.value) {
     category.value = 'Warung'
-  } else if (category.value === 'Warung' && !isWarungWallet.value) {
+  } else if (category.value === 'Warung' && !isWarungWallet.value && !isEditMode.value) {
     category.value = ''
   }
 })
-
-// Pasang default walletId pertama secara otomatis jika belum ada
-watch(wallets, (newWallets) => {
-  if (newWallets && newWallets.length > 0 && !walletId.value) {
-    walletId.value = newWallets[0].id || null
-  }
-}, { immediate: true })
 
 const filteredCategories = computed(() => {
   if (!categories.value) return []
@@ -93,7 +99,11 @@ const handleTypeChange = (newType: 'expense' | 'income' | 'transfer' | 'borrow')
   } else {
     category.value = ''
   }
-  if (newType !== 'transfer' && newType !== 'borrow') {
+
+  if (newType === 'transfer' || newType === 'borrow') {
+    const otherWallet = wallets.value?.find(w => w.id !== walletId.value)
+    targetWalletId.value = otherWallet ? otherWallet.id : null
+  } else {
     targetWalletId.value = null
   }
 }
@@ -113,16 +123,19 @@ const handleSubmit = async () => {
   }
   if (!amount.value || amount.value <= 0) return alert('Nominal harus lebih dari 0!')
 
-  const selectedDate = new Date(transactionDate.value).toISOString()
+  // REVISI PENTING: Trik agar string datetime-local tidak ter-offset jam-nya saat konversi ke ISO
+  const [datePart, timePart] = transactionDate.value.split('T')
+  const [year, month, day] = datePart.split('-').map(Number)
+  const [hours, minutes] = timePart.split(':').map(Number)
+  const exactLocalDate = new Date(year, month - 1, day, hours, minutes)
+  const selectedDate = exactLocalDate.toISOString()
 
   try {
     isSubmitting.value = true
 
-    if (type.value === 'borrow') {
-      await borrowMoney(walletId.value, targetWalletId.value, amount.value, notes.value, selectedDate)
-    } else {
-      await addTransaction({
-        type: type.value,
+    if (isEditMode.value && props.editingTransaction?.id) {
+      await updateTransaction(props.editingTransaction.id, {
+        type: type.value as 'income' | 'expense' | 'transfer',
         walletId: walletId.value,
         targetWalletId: type.value === 'transfer' ? targetWalletId.value : undefined,
         category: type.value !== 'transfer' ? finalCategory : undefined,
@@ -130,12 +143,22 @@ const handleSubmit = async () => {
         notes: notes.value,
         date: selectedDate
       })
+    } else {
+      if (type.value === 'borrow') {
+        await borrowMoney(walletId.value, targetWalletId.value, amount.value, notes.value, selectedDate)
+      } else {
+        await addTransaction({
+          type: type.value,
+          walletId: walletId.value,
+          targetWalletId: type.value === 'transfer' ? targetWalletId.value : undefined,
+          category: type.value !== 'transfer' ? finalCategory : undefined,
+          amount: amount.value,
+          notes: notes.value,
+          date: selectedDate
+        })
+      }
     }
 
-    amount.value = null
-    notes.value = ''
-    category.value = ''
-    transactionDate.value = getCurrentLocalDateTime()
     emit('saved')
   } catch (err: any) {
     alert(err.message || 'Gagal menyimpan transaksi')
@@ -149,7 +172,9 @@ const handleSubmit = async () => {
   <div class="bg-white p-4 rounded-t-2xl sm:rounded-xl shadow-lg space-y-4 max-w-md w-full mx-auto">
     <!-- Header -->
     <div class="flex justify-between items-center border-b pb-2">
-      <h3 class="text-lg font-bold text-gray-800">Tambah Transaksi</h3>
+      <h3 class="text-lg font-bold text-gray-800">
+        {{ isEditMode ? 'Edit Transaksi' : 'Tambah Transaksi' }}
+      </h3>
       <button 
         type="button"
         @click="emit('close')" 
@@ -159,7 +184,7 @@ const handleSubmit = async () => {
       </button>
     </div>
 
-    <!-- Tipe Transaksi (Tabs 4 Opsi) -->
+    <!-- Tipe Transaksi (Tabs Opsi) -->
     <div class="grid grid-cols-4 gap-1 bg-gray-100 p-1 rounded-lg">
       <button 
         type="button"
@@ -186,6 +211,7 @@ const handleSubmit = async () => {
         Transfer
       </button>
       <button 
+        v-if="!isEditMode"
         type="button"
         @click="handleTypeChange('borrow')"
         :class="type === 'borrow' ? 'bg-amber-500 text-white font-semibold shadow' : 'text-gray-600'"
@@ -284,14 +310,14 @@ const handleSubmit = async () => {
       />
     </div>
 
-    <!-- Tombol Simpan -->
+    <!-- Tombol Simpan / Update -->
     <button 
       type="button"
       @click="handleSubmit"
       :disabled="isSubmitting"
       class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition active:scale-98 disabled:opacity-50"
     >
-      {{ isSubmitting ? 'Menyimpan...' : 'Simpan Transaksi' }}
+      {{ isSubmitting ? 'Menyimpan...' : isEditMode ? 'Simpan Perubahan' : 'Simpan Transaksi' }}
     </button>
   </div>
 </template>
@@ -319,10 +345,51 @@ export function useFinance() {
     liveQuery(() => db.transactions.orderBy('date').reverse().limit(20).toArray())
   )
 
-  // Menggunakan query boolean murni sesuai tipe di DB
   const activeDebts = useObservable(
     liveQuery(() => db.debts.where('isPaid').equals(false).toArray())
   )
+
+  // 🔄 HELPER: Hitung Ulang Seluruh Saldo Dompet Berdasarkan Riwayat Transaksi
+  async function recalculateWalletBalances() {
+    await db.transaction('rw', [db.wallets, db.transactions], async () => {
+      const allWallets = await db.wallets.toArray()
+      const allTransactions = await db.transactions.toArray()
+
+      for (const wallet of allWallets) {
+        let newBalance = 0
+
+        for (const tx of allTransactions) {
+          // Saldo terpotong jika dompet ini adalah asal transaksi
+          if (tx.walletId === wallet.id) {
+            if (tx.type === 'expense') newBalance -= tx.amount
+            if (tx.type === 'income') newBalance += tx.amount
+            if (tx.type === 'transfer' || tx.type === 'debt_repayment') newBalance -= tx.amount
+          }
+          // Saldo bertambah jika dompet ini adalah tujuan transfer/pinjaman
+          if (tx.targetWalletId === wallet.id) {
+            if (tx.type === 'transfer' || tx.type === 'debt_repayment') newBalance += tx.amount
+          }
+        }
+
+        // Update saldo akhir di database
+        await db.wallets.update(wallet.id, { balance: newBalance })
+      }
+    })
+  }
+
+  // 🗑️ HELPER: Hapus Database Lama & Re-populate Default Identitas UUID
+  async function resetDatabase() {
+    try {
+      await db.delete() // Hapus total database lokal dari IndexedDB
+      await db.open()   // Buka kembali agar event 'populate' ter-trigger ulang dari awal
+
+      await recalculateWalletBalances()
+      alert('Database berhasil di-reset ke versi bersih!')
+      window.location.reload()
+    } catch (err: any) {
+      alert('Gagal me-reset database: ' + (err.message || 'Error tidak diketahui'))
+    }
+  }
 
   // 2. Fungsi Pinjam Antar-Dompet
   async function borrowMoney(
@@ -342,10 +409,6 @@ export function useFinance() {
       const borrower = await db.wallets.get(borrowerWalletId)
 
       if (!lender || !borrower) throw new Error('Dompet tidak ditemukan')
-
-      // Update Saldo
-      await db.wallets.update(lenderWalletId, { balance: lender.balance - amount })
-      await db.wallets.update(borrowerWalletId, { balance: borrower.balance + amount })
 
       // Catat Utang Internal (UUID)
       await db.debts.add({
@@ -370,6 +433,9 @@ export function useFinance() {
       })
     })
 
+    // Hitung ulang saldo seluruh dompet
+    await recalculateWalletBalances()
+
     // Sync latar belakang
     syncToCloud()
   }
@@ -381,15 +447,6 @@ export function useFinance() {
     await db.transaction('rw', [db.wallets, db.transactions, db.debts], async () => {
       const debt = await db.debts.get(debtId)
       if (!debt) throw new Error('Data utang tidak ditemukan')
-
-      const borrower = await db.wallets.get(debt.fromWalletId)
-      const lender = await db.wallets.get(debt.toWalletId)
-
-      if (!borrower || !lender) throw new Error('Dompet terkait tidak ditemukan')
-
-      // Kembalikan Saldo
-      await db.wallets.update(debt.fromWalletId, { balance: borrower.balance - debt.amount })
-      await db.wallets.update(debt.toWalletId, { balance: lender.balance + debt.amount })
 
       // Tandai Lunas (Boolean)
       await db.debts.update(debtId, { isPaid: true })
@@ -405,6 +462,9 @@ export function useFinance() {
         date
       })
     })
+
+    // Hitung ulang saldo seluruh dompet
+    await recalculateWalletBalances()
 
     syncToCloud()
   }
@@ -427,18 +487,6 @@ export function useFinance() {
       const sourceWallet = await db.wallets.get(payload.walletId)
       if (!sourceWallet) throw new Error('Dompet asal tidak ditemukan')
 
-      if (payload.type === 'expense') {
-        await db.wallets.update(payload.walletId, { balance: sourceWallet.balance - payload.amount })
-      } else if (payload.type === 'income') {
-        await db.wallets.update(payload.walletId, { balance: sourceWallet.balance + payload.amount })
-      } else if (payload.type === 'transfer' && payload.targetWalletId) {
-        const targetWallet = await db.wallets.get(payload.targetWalletId)
-        if (!targetWallet) throw new Error('Dompet tujuan tidak ditemukan')
-
-        await db.wallets.update(payload.walletId, { balance: sourceWallet.balance - payload.amount })
-        await db.wallets.update(payload.targetWalletId, { balance: targetWallet.balance + payload.amount })
-      }
-
       await db.transactions.add({
         id: crypto.randomUUID(),
         type: payload.type,
@@ -451,10 +499,51 @@ export function useFinance() {
       })
     })
 
+    // Hitung ulang saldo seluruh dompet berdasarkan transaksi yang ada
+    await recalculateWalletBalances()
+
     syncToCloud()
   }
 
-  // 5. Fitur Backup & Restore (JSON Manual)
+  // 5. Update Transaksi Eksisting (Fitur Edit)
+  async function updateTransaction(
+    id: string,
+    payload: {
+      type: 'income' | 'expense' | 'transfer'
+      walletId: string
+      targetWalletId?: string
+      category?: string
+      amount: number
+      notes?: string
+      date?: string
+    }
+  ) {
+    if (payload.amount <= 0) throw new Error('Nominal transaksi harus lebih dari 0')
+
+    const txDate = payload.date || new Date().toISOString()
+
+    await db.transaction('rw', [db.wallets, db.transactions], async () => {
+      const existingTx = await db.transactions.get(id)
+      if (!existingTx) throw new Error('Transaksi tidak ditemukan')
+
+      // Update record transaksi
+      await db.transactions.update(id, {
+        type: payload.type,
+        walletId: payload.walletId,
+        targetWalletId: payload.targetWalletId,
+        category: payload.category,
+        amount: payload.amount,
+        notes: payload.notes,
+        date: txDate
+      })
+    })
+
+    // Recalculate saldo & sync
+    await recalculateWalletBalances()
+    syncToCloud()
+  }
+
+  // 6. Fitur Backup & Restore (JSON Manual)
   async function exportBackup() {
     const walletsData = await db.wallets.toArray()
     const categoriesData = await db.categories.toArray()
@@ -503,6 +592,7 @@ export function useFinance() {
             if (parsed.debts?.length) await db.debts.bulkAdd(parsed.debts)
           })
 
+          await recalculateWalletBalances()
           syncToCloud()
           resolve()
         } catch (err) {
@@ -514,7 +604,7 @@ export function useFinance() {
     })
   }
 
-  // 6. Helper Formatter Angka
+  // 7. Helper Formatter Angka
   const formatRupiah = (val: number) => {
     return new Intl.NumberFormat('id-ID', {
       style: 'currency',
@@ -531,9 +621,12 @@ export function useFinance() {
     borrowMoney,
     payDebt,
     addTransaction,
+    updateTransaction,
     exportBackup,
     importBackup,
-    formatRupiah
+    formatRupiah,
+    recalculateWalletBalances,
+    resetDatabase
   }
 }
 
@@ -629,21 +722,6 @@ export const db = new FinancialDB()
 
 
 
-src/services/supabase.ts:
-// src/services/supabase.ts
-import { createClient } from '@supabase/supabase-js'
-
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
-
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.warn('⚠️ Supabase URL atau Anon Key belum dikonfigurasi di file .env')
-}
-
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-
-
-
 src/services/syncService.ts:
 // src/services/syncService.ts
 import { db } from '@/db/db'
@@ -692,6 +770,7 @@ import { ref, computed } from 'vue'
 import { useFinance } from '@/composables/useFinance'
 import { syncToCloud } from '@/services/syncService'
 import TransactionForm from '@/components/TransactionForm.vue'
+import type { Transaction } from '@/db/db'
 
 const { 
   wallets, 
@@ -700,14 +779,34 @@ const {
   payDebt, 
   exportBackup, 
   importBackup, 
-  formatRupiah 
+  formatRupiah,
+  resetDatabase
 } = useFinance()
 
 const showForm = ref(false)
+const editingTransaction = ref<Transaction | null>(null)
 const isSyncing = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
 
-// Total saldo dari seluruh dompet
+// Buka Form untuk Tambah Baru
+const handleOpenAdd = () => {
+  editingTransaction.value = null
+  showForm.value = true
+}
+
+// Buka Form untuk Edit Transaksi
+const handleOpenEdit = (tx: Transaction) => {
+  editingTransaction.value = tx
+  showForm.value = true
+}
+
+// Tutup Form Modal
+const handleCloseForm = () => {
+  showForm.value = false
+  editingTransaction.value = null
+}
+
+// Total saldo seluruh dompet
 const calculatedTotal = computed(() => {
   if (!wallets.value) return 0
   return wallets.value.reduce((acc, curr) => acc + curr.balance, 0)
@@ -751,7 +850,7 @@ const handleFileChange = async (event: Event) => {
   }
 }
 
-// Handler Pelunasan Utang (debtId bertipe string)
+// Handler Pelunasan Utang
 const handlePayDebt = async (debtId: string) => {
   if (confirm('Apakah kamu yakin ingin melunasi pinjaman ini? Saldo dompet terkait akan otomatis disesuaikan.')) {
     try {
@@ -759,6 +858,13 @@ const handlePayDebt = async (debtId: string) => {
     } catch (err: any) {
       alert(err.message || 'Gagal melunasi pinjaman')
     }
+  }
+}
+
+// Handler Reset Database dengan Konfirmasi
+const handleResetDatabase = async () => {
+  if (confirm('⚠️ PERINGATAN: Tindakan ini akan menghapus database lokal dan membuat ulang struktur dompet UUID yang bersih. Lanjutkan?')) {
+    await resetDatabase()
   }
 }
 </script>
@@ -829,7 +935,7 @@ const handlePayDebt = async (debtId: string) => {
         </div>
       </section>
 
-      <!-- Riwayat Transaksi -->
+      <!-- Riwayat Transaksi (Klik Item untuk Edit) -->
       <section>
         <div class="flex justify-between items-center mb-3">
           <h2 class="text-sm font-bold text-gray-500 uppercase tracking-wide">Transaksi Terakhir</h2>
@@ -843,7 +949,8 @@ const handlePayDebt = async (debtId: string) => {
           <div 
             v-for="tx in recentTransactions" 
             :key="tx.id" 
-            class="p-4 flex justify-between items-center text-sm"
+            @click="handleOpenEdit(tx)"
+            class="p-4 flex justify-between items-center text-sm cursor-pointer hover:bg-slate-50 transition active:bg-slate-100"
           >
             <div>
               <div class="font-semibold text-slate-700">
@@ -856,17 +963,19 @@ const handlePayDebt = async (debtId: string) => {
             </div>
             <div 
               :class="tx.type === 'expense' ? 'text-red-500' : tx.type === 'income' ? 'text-emerald-600' : 'text-blue-500'" 
-              class="font-bold text-base"
+              class="font-bold text-base flex items-center gap-1.5"
             >
-              {{ tx.type === 'expense' ? '-' : tx.type === 'income' ? '+' : '→' }} {{ formatRupiah(tx.amount) }}
+              <span>{{ tx.type === 'expense' ? '-' : tx.type === 'income' ? '+' : '→' }} {{ formatRupiah(tx.amount) }}</span>
+              <span class="text-xs text-gray-300">✏️</span>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- Backup & Restore Data -->
-      <section class="pt-2">
-        <h2 class="text-sm font-bold text-gray-500 uppercase tracking-wide mb-3">Cadangan Data</h2>
+      <!-- Cadangan & Pengaturan Database -->
+      <section class="pt-2 space-y-3">
+        <h2 class="text-sm font-bold text-gray-500 uppercase tracking-wide">Cadangan & Pengaturan</h2>
+        
         <div class="grid grid-cols-2 gap-3">
           <button 
             @click="exportBackup"
@@ -890,39 +999,36 @@ const handlePayDebt = async (debtId: string) => {
             @change="handleFileChange"
           />
         </div>
+
+        <!-- Tombol Reset Database -->
+        <button 
+          @click="handleResetDatabase"
+          class="w-full p-2.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200/80 rounded-xl text-xs font-bold transition active:scale-95 text-center flex items-center justify-center gap-1.5"
+        >
+          <span>⚠️</span> Reset Database Lokal ke Versi UUID
+        </button>
       </section>
     </main>
 
-    <!-- FAB -->
+    <!-- FAB Tambah Baru -->
     <div class="fixed bottom-6 right-6 z-40">
       <button 
-        @click="showForm = true"
+        @click="handleOpenAdd"
         class="bg-indigo-600 hover:bg-indigo-700 text-white w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-2xl font-bold transition active:scale-95"
       >
         +
       </button>
     </div>
 
-    <!-- Modal Form Transaksi -->
+    <!-- Modal Form Transaksi (Tambah / Edit) -->
     <div v-if="showForm" class="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center sm:justify-center transition-opacity">
       <div class="w-full max-w-md animate-in fade-in slide-in-from-bottom duration-200">
-        <TransactionForm @close="showForm = false" @saved="showForm = false" />
+        <TransactionForm 
+          :editingTransaction="editingTransaction"
+          @close="handleCloseForm" 
+          @saved="handleCloseForm" 
+        />
       </div>
     </div>
   </div>
 </template>
-
-
-
-src/env.d.ts:
-/// <reference types="vite/client" />
-/// <reference types="vite-plugin-pwa/client" />
-
-interface ImportMetaEnv {
-  readonly VITE_SUPABASE_URL: string
-  readonly VITE_SUPABASE_ANON_KEY: string
-}
-
-interface ImportMeta {
-  readonly env: ImportMetaEnv
-}

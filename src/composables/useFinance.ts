@@ -179,42 +179,45 @@ export function useFinance() {
   }
 
   // 5. Update Transaksi Eksisting (Fitur Edit)
-  async function updateTransaction(
-    id: string,
-    payload: {
-      type: 'income' | 'expense' | 'transfer'
-      walletId: string
-      targetWalletId?: string
-      category?: string
-      amount: number
-      notes?: string
-      date?: string
-    }
-  ) {
-    if (payload.amount <= 0) throw new Error('Nominal transaksi harus lebih dari 0')
-
-    const txDate = payload.date || new Date().toISOString()
-
-    await db.transaction('rw', [db.wallets, db.transactions], async () => {
-      const existingTx = await db.transactions.get(id)
-      if (!existingTx) throw new Error('Transaksi tidak ditemukan')
-
-      // Update record transaksi
-      await db.transactions.update(id, {
-        type: payload.type,
-        walletId: payload.walletId,
-        targetWalletId: payload.targetWalletId,
-        category: payload.category,
-        amount: payload.amount,
-        notes: payload.notes,
-        date: txDate
-      })
-    })
-
-    // Recalculate saldo & sync
-    await recalculateWalletBalances()
-    syncToCloud()
+  // src/composables/useFinance.ts
+async function updateTransaction(
+  id: string,
+  payload: {
+    type: 'income' | 'expense' | 'transfer'
+    walletId: string
+    targetWalletId?: string
+    category?: string
+    amount: number
+    notes?: string
+    date?: string
   }
+) {
+  if (payload.amount <= 0) throw new Error('Nominal transaksi harus lebih dari 0')
+
+  const txDate = payload.date || new Date().toISOString()
+
+  await db.transaction('rw', [db.wallets, db.transactions], async () => {
+    const existingTx = await db.transactions.get(id)
+    if (!existingTx) throw new Error('Transaksi tidak ditemukan')
+
+    // Pastikan field opsional dibersihkan jika tipe transaksi berubah
+    await db.transactions.put({
+      ...existingTx,
+      type: payload.type,
+      walletId: payload.walletId,
+      targetWalletId: payload.type === 'transfer' ? payload.targetWalletId : undefined,
+      category: payload.type !== 'transfer' ? payload.category : undefined,
+      amount: payload.amount,
+      notes: payload.notes,
+      date: txDate,
+      updated_at: new Date().toISOString()
+    })
+  })
+
+  await recalculateWalletBalances()
+  syncToCloud()
+}
+
 
   // 6. Fitur Backup & Restore (JSON Manual)
   async function exportBackup() {
