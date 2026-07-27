@@ -18,10 +18,37 @@ export function useFinance() {
     liveQuery(() => db.transactions.orderBy('date').reverse().limit(20).toArray())
   )
 
-  // Menggunakan query boolean murni sesuai tipe di DB
   const activeDebts = useObservable(
     liveQuery(() => db.debts.where('isPaid').equals(false).toArray())
   )
+
+  // 🔄 HELPER: Hitung Ulang Seluruh Saldo Dompet Berdasarkan Riwayat Transaksi
+  async function recalculateWalletBalances() {
+    await db.transaction('rw', [db.wallets, db.transactions], async () => {
+      const allWallets = await db.wallets.toArray()
+      const allTransactions = await db.transactions.toArray()
+
+      for (const wallet of allWallets) {
+        let newBalance = 0
+
+        for (const tx of allTransactions) {
+          // Saldo terpotong jika dompet ini adalah asal transaksi
+          if (tx.walletId === wallet.id) {
+            if (tx.type === 'expense') newBalance -= tx.amount
+            if (tx.type === 'income') newBalance += tx.amount
+            if (tx.type === 'transfer' || tx.type === 'debt_repayment') newBalance -= tx.amount
+          }
+          // Saldo bertambah jika dompet ini adalah tujuan transfer/pinjaman
+          if (tx.targetWalletId === wallet.id) {
+            if (tx.type === 'transfer' || tx.type === 'debt_repayment') newBalance += tx.amount
+          }
+        }
+
+        // Update saldo akhir di database
+        await db.wallets.update(wallet.id, { balance: newBalance })
+      }
+    })
+  }
 
   // 2. Fungsi Pinjam Antar-Dompet
   async function borrowMoney(
@@ -41,10 +68,6 @@ export function useFinance() {
       const borrower = await db.wallets.get(borrowerWalletId)
 
       if (!lender || !borrower) throw new Error('Dompet tidak ditemukan')
-
-      // Update Saldo
-      await db.wallets.update(lenderWalletId, { balance: lender.balance - amount })
-      await db.wallets.update(borrowerWalletId, { balance: borrower.balance + amount })
 
       // Catat Utang Internal (UUID)
       await db.debts.add({
@@ -69,6 +92,9 @@ export function useFinance() {
       })
     })
 
+    // Hitung ulang saldo seluruh dompet
+    await recalculateWalletBalances()
+
     // Sync latar belakang
     syncToCloud()
   }
@@ -80,15 +106,6 @@ export function useFinance() {
     await db.transaction('rw', [db.wallets, db.transactions, db.debts], async () => {
       const debt = await db.debts.get(debtId)
       if (!debt) throw new Error('Data utang tidak ditemukan')
-
-      const borrower = await db.wallets.get(debt.fromWalletId)
-      const lender = await db.wallets.get(debt.toWalletId)
-
-      if (!borrower || !lender) throw new Error('Dompet terkait tidak ditemukan')
-
-      // Kembalikan Saldo
-      await db.wallets.update(debt.fromWalletId, { balance: borrower.balance - debt.amount })
-      await db.wallets.update(debt.toWalletId, { balance: lender.balance + debt.amount })
 
       // Tandai Lunas (Boolean)
       await db.debts.update(debtId, { isPaid: true })
@@ -104,6 +121,9 @@ export function useFinance() {
         date
       })
     })
+
+    // Hitung ulang saldo seluruh dompet
+    await recalculateWalletBalances()
 
     syncToCloud()
   }
@@ -126,18 +146,6 @@ export function useFinance() {
       const sourceWallet = await db.wallets.get(payload.walletId)
       if (!sourceWallet) throw new Error('Dompet asal tidak ditemukan')
 
-      if (payload.type === 'expense') {
-        await db.wallets.update(payload.walletId, { balance: sourceWallet.balance - payload.amount })
-      } else if (payload.type === 'income') {
-        await db.wallets.update(payload.walletId, { balance: sourceWallet.balance + payload.amount })
-      } else if (payload.type === 'transfer' && payload.targetWalletId) {
-        const targetWallet = await db.wallets.get(payload.targetWalletId)
-        if (!targetWallet) throw new Error('Dompet tujuan tidak ditemukan')
-
-        await db.wallets.update(payload.walletId, { balance: sourceWallet.balance - payload.amount })
-        await db.wallets.update(payload.targetWalletId, { balance: targetWallet.balance + payload.amount })
-      }
-
       await db.transactions.add({
         id: crypto.randomUUID(),
         type: payload.type,
@@ -149,6 +157,9 @@ export function useFinance() {
         date: txDate
       })
     })
+
+    // Hitung ulang saldo seluruh dompet berdasarkan transaksi yang ada
+    await recalculateWalletBalances()
 
     syncToCloud()
   }
@@ -202,6 +213,7 @@ export function useFinance() {
             if (parsed.debts?.length) await db.debts.bulkAdd(parsed.debts)
           })
 
+          await recalculateWalletBalances()
           syncToCloud()
           resolve()
         } catch (err) {
@@ -232,6 +244,7 @@ export function useFinance() {
     addTransaction,
     exportBackup,
     importBackup,
-    formatRupiah
+    formatRupiah,
+    recalculateWalletBalances
   }
 }
