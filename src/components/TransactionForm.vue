@@ -13,7 +13,6 @@ const getCurrentLocalDateTime = () => {
 
 const type = ref<'expense' | 'income' | 'transfer' | 'borrow'>('expense')
 
-// Perubahan: Tipe ID menjadi string | null
 const walletId = ref<string | null>(null)
 const targetWalletId = ref<string | null>(null)
 
@@ -32,6 +31,16 @@ const availableWallets = computed(() => {
   return wallets.value
 })
 
+// Pasang default walletId pertama secara otomatis saat data dompet loaded/berubah
+watch(availableWallets, (newWallets) => {
+  if (newWallets && newWallets.length > 0) {
+    const exists = newWallets.some(w => w.id === walletId.value)
+    if (!walletId.value || !exists) {
+      walletId.value = newWallets[0].id
+    }
+  }
+}, { immediate: true })
+
 // Cek apakah dompet yang dipilih adalah "Rekening Warung"
 const isWarungWallet = computed(() => {
   if (!walletId.value || !wallets.value) return false
@@ -48,13 +57,6 @@ watch([type, walletId], () => {
   }
 })
 
-// Pasang default walletId pertama secara otomatis jika belum ada
-watch(wallets, (newWallets) => {
-  if (newWallets && newWallets.length > 0 && !walletId.value) {
-    walletId.value = newWallets[0].id || null
-  }
-}, { immediate: true })
-
 const filteredCategories = computed(() => {
   if (!categories.value) return []
   return categories.value.filter(c => c.type === type.value)
@@ -62,12 +64,18 @@ const filteredCategories = computed(() => {
 
 const handleTypeChange = (newType: 'expense' | 'income' | 'transfer' | 'borrow') => {
   type.value = newType
+  
   if ((newType === 'income' || newType === 'expense') && isWarungWallet.value) {
     category.value = 'Warung'
   } else {
     category.value = ''
   }
-  if (newType !== 'transfer' && newType !== 'borrow') {
+
+  if (newType === 'transfer' || newType === 'borrow') {
+    // Set target wallet default ke pilihan kedua jika ada
+    const otherWallet = wallets.value?.find(w => w.id !== walletId.value)
+    targetWalletId.value = otherWallet ? otherWallet.id : null
+  } else {
     targetWalletId.value = null
   }
 }
