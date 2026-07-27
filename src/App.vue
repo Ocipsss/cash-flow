@@ -24,8 +24,8 @@ const calculatedTotal = computed(() => {
   return wallets.value.reduce((acc, curr) => acc + curr.balance, 0)
 })
 
-// Helper untuk mendapatkan nama dompet berdasarkan ID
-const getWalletName = (id: number) => {
+// Helper untuk mendapatkan nama dompet berdasarkan ID (string / UUID)
+const getWalletName = (id: string) => {
   if (!wallets.value) return '-'
   const found = wallets.value.find(w => w.id === id)
   return found ? found.name : '-'
@@ -62,8 +62,8 @@ const handleFileChange = async (event: Event) => {
   }
 }
 
-// Handler Pelunasan Utang
-const handlePayDebt = async (debtId: number) => {
+// Handler Pelunasan Utang (debtId bertipe string)
+const handlePayDebt = async (debtId: string) => {
   if (confirm('Apakah kamu yakin ingin melunasi pinjaman ini? Saldo dompet terkait akan otomatis disesuaikan.')) {
     try {
       await payDebt(debtId)
@@ -112,7 +112,7 @@ const handlePayDebt = async (debtId: number) => {
         </div>
       </section>
 
-      <!-- Section Pinjaman / Utang Internal (Hanya muncul jika ada utang aktif) -->
+      <!-- Section Pinjaman / Utang Internal -->
       <section v-if="activeDebts?.length">
         <h2 class="text-sm font-bold text-gray-500 uppercase tracking-wide mb-3">Pinjaman Internal</h2>
         <div class="bg-amber-50 border border-amber-200/80 rounded-2xl p-4 space-y-3 shadow-sm">
@@ -193,7 +193,6 @@ const handlePayDebt = async (debtId: number) => {
             <span>📤</span> Import JSON
           </button>
 
-          <!-- Input File Tersembunyi untuk Import Backup -->
           <input 
             ref="fileInput"
             type="file" 
@@ -205,7 +204,7 @@ const handlePayDebt = async (debtId: number) => {
       </section>
     </main>
 
-    <!-- Floating Action Button (FAB) untuk Buka Form -->
+    <!-- FAB -->
     <div class="fixed bottom-6 right-6 z-40">
       <button 
         @click="showForm = true"
@@ -215,7 +214,7 @@ const handlePayDebt = async (debtId: number) => {
       </button>
     </div>
 
-    <!-- Modal / Bottom Sheet Form Transaksi -->
+    <!-- Modal Form Transaksi -->
     <div v-if="showForm" class="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center sm:justify-center transition-opacity">
       <div class="w-full max-w-md animate-in fade-in slide-in-from-bottom duration-200">
         <TransactionForm @close="showForm = false" @saved="showForm = false" />

@@ -12,8 +12,11 @@ const getCurrentLocalDateTime = () => {
 }
 
 const type = ref<'expense' | 'income' | 'transfer' | 'borrow'>('expense')
-const walletId = ref<number | null>(null)
-const targetWalletId = ref<number | null>(null)
+
+// Perubahan: Tipe ID menjadi string | null
+const walletId = ref<string | null>(null)
+const targetWalletId = ref<string | null>(null)
+
 const category = ref<string>('')
 const amount = ref<number | null>(null)
 const notes = ref<string>('')
@@ -36,7 +39,7 @@ const isWarungWallet = computed(() => {
   return selected?.name.toLowerCase().includes('warung') ?? false
 })
 
-// Kunci kategori ke "Warung" jika dompet Rekening Warung dipilih (Pemasukan / Pengeluaran)
+// Kunci kategori ke "Warung" jika dompet Rekening Warung dipilih
 watch([type, walletId], () => {
   if ((type.value === 'income' || type.value === 'expense') && isWarungWallet.value) {
     category.value = 'Warung'
@@ -45,17 +48,7 @@ watch([type, walletId], () => {
   }
 })
 
-// Apabila pindah ke tab 'Pemasukan'/'Pengeluaran' dan RDN sedang terpilih, alihkan dompet ke pilihan aman pertama
-watch(type, (newType) => {
-  if ((newType === 'income' || newType === 'expense') && walletId.value) {
-    const selected = wallets.value?.find(w => w.id === walletId.value)
-    if (selected?.name.toLowerCase().includes('rdn')) {
-      const firstValid = availableWallets.value[0]
-      walletId.value = firstValid ? (firstValid.id || null) : null
-    }
-  }
-})
-
+// Pasang default walletId pertama secara otomatis jika belum ada
 watch(wallets, (newWallets) => {
   if (newWallets && newWallets.length > 0 && !walletId.value) {
     walletId.value = newWallets[0].id || null
@@ -85,7 +78,6 @@ const handleSubmit = async () => {
     return alert('Pilih dompet pasangan/tujuan!')
   }
 
-  // Tentukan kategori akhir
   const finalCategory = ((type.value === 'income' || type.value === 'expense') && isWarungWallet.value) 
     ? 'Warung' 
     : category.value
@@ -237,12 +229,10 @@ const handleSubmit = async () => {
     <div v-if="type === 'expense' || type === 'income'">
       <label class="block text-xs font-medium text-gray-500 mb-1">Kategori</label>
       
-      <!-- Info Otomatis jika Rekening Warung (Pengeluaran maupun Pemasukan) -->
       <div v-if="isWarungWallet" class="p-2.5 bg-indigo-50 border border-indigo-200 rounded-lg text-xs text-indigo-700 font-medium">
         ⚡ Otomatis dicatat sebagai transaksi <strong>Warung</strong>.
       </div>
 
-      <!-- Pilih Kategori Biasa untuk Dompet Lain -->
       <div v-else class="grid grid-cols-3 gap-1.5 max-h-36 overflow-y-auto p-1 border rounded-lg">
         <button
           v-for="cat in filteredCategories"

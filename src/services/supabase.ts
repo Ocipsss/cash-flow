@@ -1,8 +1,11 @@
 // src/services/supabase.ts
 import { createClient } from '@supabase/supabase-js'
 
-// Ganti nilai di bawah dengan URL & API Key dari dashboard Supabase kamu
-const SUPABASE_URL = 'https://xxxx.supabase.co'
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJKV1QiLC...'
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
+
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  console.warn('⚠️ Supabase URL atau Anon Key belum dikonfigurasi di file .env')
+}
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)

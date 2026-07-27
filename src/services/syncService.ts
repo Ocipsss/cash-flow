@@ -3,25 +3,33 @@ import { db } from '@/db/db'
 import { supabase } from './supabase'
 
 export async function syncToCloud() {
-  if (!navigator.onLine) return // Skip jika HP sedang offline
+  if (!navigator.onLine) return
 
   try {
-    // 1. Sync Wallets (Upsert/Update jika sudah ada ID-nya)
-    const localWallets = await db.wallets.toArray()
-    if (localWallets.length > 0) {
-      await supabase.from('wallets').upsert(localWallets)
-    }
+    const tables = ['wallets', 'categories', 'transactions', 'debts'] as const
 
-    // 2. Sync Transactions
-    const localTransactions = await db.transactions.toArray()
-    if (localTransactions.length > 0) {
-      await supabase.from('transactions').upsert(localTransactions)
-    }
+    for (const tableName of tables) {
+      // 1. PULL: Ambil data dari Supabase dan simpan ke Dexie lokal
+      const { data: cloudData, error } = await supabase.from(tableName).select('*')
+      
+      if (error) {
+        console.error(`Gagal pull ${tableName}:`, error)
+        continue
+      }
 
-    // 3. Sync Debts
-    const localDebts = await db.debts.toArray()
-    if (localDebts.length > 0) {
-      await supabase.from('debts').upsert(localDebts)
+      if (cloudData && cloudData.length > 0) {
+        // Bulk put akan meng-update jika ID cocok, atau insert jika belum ada
+        await db.table(tableName).bulkPut(cloudData)
+      }
+
+      // 2. PUSH: Ambil data terbaru dari Dexie lokal dan upsert ke Supabase
+      const localData = await db.table(tableName).toArray()
+      if (localData.length > 0) {
+        const { error: pushError } = await supabase.from(tableName).upsert(localData)
+        if (pushError) {
+          console.error(`Gagal push ${tableName}:`, pushError)
+        }
+      }
     }
 
     console.log('✅ Synchronized with Supabase Cloud successfully!')
