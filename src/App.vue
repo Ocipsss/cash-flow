@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { useFinance } from '@/composables/useFinance'
 import { syncToCloud } from '@/services/syncService'
 import TransactionForm from '@/components/TransactionForm.vue'
+import type { Transaction } from '@/db/db'
 
 const { 
   wallets, 
@@ -16,10 +17,29 @@ const {
 } = useFinance()
 
 const showForm = ref(false)
+const editingTransaction = ref<Transaction | null>(null)
 const isSyncing = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
 
-// Total saldo dari seluruh dompet
+// Buka Form untuk Tambah Baru
+const handleOpenAdd = () => {
+  editingTransaction.value = null
+  showForm.value = true
+}
+
+// Buka Form untuk Edit Transaksi
+const handleOpenEdit = (tx: Transaction) => {
+  editingTransaction.value = tx
+  showForm.value = true
+}
+
+// Tutup Form Modal
+const handleCloseForm = () => {
+  showForm.value = false
+  editingTransaction.value = null
+}
+
+// Total saldo seluruh dompet
 const calculatedTotal = computed(() => {
   if (!wallets.value) return 0
   return wallets.value.reduce((acc, curr) => acc + curr.balance, 0)
@@ -63,7 +83,7 @@ const handleFileChange = async (event: Event) => {
   }
 }
 
-// Handler Pelunasan Utang (debtId bertipe string)
+// Handler Pelunasan Utang
 const handlePayDebt = async (debtId: string) => {
   if (confirm('Apakah kamu yakin ingin melunasi pinjaman ini? Saldo dompet terkait akan otomatis disesuaikan.')) {
     try {
@@ -148,7 +168,7 @@ const handleResetDatabase = async () => {
         </div>
       </section>
 
-      <!-- Riwayat Transaksi -->
+      <!-- Riwayat Transaksi (Klik Item untuk Edit) -->
       <section>
         <div class="flex justify-between items-center mb-3">
           <h2 class="text-sm font-bold text-gray-500 uppercase tracking-wide">Transaksi Terakhir</h2>
@@ -162,7 +182,8 @@ const handleResetDatabase = async () => {
           <div 
             v-for="tx in recentTransactions" 
             :key="tx.id" 
-            class="p-4 flex justify-between items-center text-sm"
+            @click="handleOpenEdit(tx)"
+            class="p-4 flex justify-between items-center text-sm cursor-pointer hover:bg-slate-50 transition active:bg-slate-100"
           >
             <div>
               <div class="font-semibold text-slate-700">
@@ -175,9 +196,10 @@ const handleResetDatabase = async () => {
             </div>
             <div 
               :class="tx.type === 'expense' ? 'text-red-500' : tx.type === 'income' ? 'text-emerald-600' : 'text-blue-500'" 
-              class="font-bold text-base"
+              class="font-bold text-base flex items-center gap-1.5"
             >
-              {{ tx.type === 'expense' ? '-' : tx.type === 'income' ? '+' : '→' }} {{ formatRupiah(tx.amount) }}
+              <span>{{ tx.type === 'expense' ? '-' : tx.type === 'income' ? '+' : '→' }} {{ formatRupiah(tx.amount) }}</span>
+              <span class="text-xs text-gray-300">✏️</span>
             </div>
           </div>
         </div>
@@ -221,20 +243,24 @@ const handleResetDatabase = async () => {
       </section>
     </main>
 
-    <!-- FAB -->
+    <!-- FAB Tambah Baru -->
     <div class="fixed bottom-6 right-6 z-40">
       <button 
-        @click="showForm = true"
+        @click="handleOpenAdd"
         class="bg-indigo-600 hover:bg-indigo-700 text-white w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-2xl font-bold transition active:scale-95"
       >
         +
       </button>
     </div>
 
-    <!-- Modal Form Transaksi -->
+    <!-- Modal Form Transaksi (Tambah / Edit) -->
     <div v-if="showForm" class="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center sm:justify-center transition-opacity">
       <div class="w-full max-w-md animate-in fade-in slide-in-from-bottom duration-200">
-        <TransactionForm @close="showForm = false" @saved="showForm = false" />
+        <TransactionForm 
+          :editingTransaction="editingTransaction"
+          @close="handleCloseForm" 
+          @saved="handleCloseForm" 
+        />
       </div>
     </div>
   </div>

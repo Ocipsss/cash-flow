@@ -178,7 +178,45 @@ export function useFinance() {
     syncToCloud()
   }
 
-  // 5. Fitur Backup & Restore (JSON Manual)
+  // 5. Update Transaksi Eksisting (Fitur Edit)
+  async function updateTransaction(
+    id: string,
+    payload: {
+      type: 'income' | 'expense' | 'transfer'
+      walletId: string
+      targetWalletId?: string
+      category?: string
+      amount: number
+      notes?: string
+      date?: string
+    }
+  ) {
+    if (payload.amount <= 0) throw new Error('Nominal transaksi harus lebih dari 0')
+
+    const txDate = payload.date || new Date().toISOString()
+
+    await db.transaction('rw', [db.wallets, db.transactions], async () => {
+      const existingTx = await db.transactions.get(id)
+      if (!existingTx) throw new Error('Transaksi tidak ditemukan')
+
+      // Update record transaksi
+      await db.transactions.update(id, {
+        type: payload.type,
+        walletId: payload.walletId,
+        targetWalletId: payload.targetWalletId,
+        category: payload.category,
+        amount: payload.amount,
+        notes: payload.notes,
+        date: txDate
+      })
+    })
+
+    // Recalculate saldo & sync
+    await recalculateWalletBalances()
+    syncToCloud()
+  }
+
+  // 6. Fitur Backup & Restore (JSON Manual)
   async function exportBackup() {
     const walletsData = await db.wallets.toArray()
     const categoriesData = await db.categories.toArray()
@@ -239,7 +277,7 @@ export function useFinance() {
     })
   }
 
-  // 6. Helper Formatter Angka
+  // 7. Helper Formatter Angka
   const formatRupiah = (val: number) => {
     return new Intl.NumberFormat('id-ID', {
       style: 'currency',
@@ -256,6 +294,7 @@ export function useFinance() {
     borrowMoney,
     payDebt,
     addTransaction,
+    updateTransaction,
     exportBackup,
     importBackup,
     formatRupiah,

@@ -1,26 +1,46 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useFinance } from '@/composables/useFinance'
+import type { Transaction } from '@/db/db'
+
+const props = defineProps<{
+  editingTransaction?: Transaction | null
+}>()
 
 const emit = defineEmits(['close', 'saved'])
-const { wallets, categories, addTransaction, borrowMoney, formatRupiah } = useFinance()
+const { wallets, categories, addTransaction, updateTransaction, borrowMoney, formatRupiah } = useFinance()
 
-const getCurrentLocalDateTime = () => {
-  const now = new Date()
-  const offset = now.getTimezoneOffset() * 60000
-  return new Date(now.getTime() - offset).toISOString().slice(0, 16)
+const getCurrentLocalDateTime = (isoString?: string) => {
+  const dateObj = isoString ? new Date(isoString) : new Date()
+  const offset = dateObj.getTimezoneOffset() * 60000
+  return new Date(dateObj.getTime() - offset).toISOString().slice(0, 16)
 }
 
 const type = ref<'expense' | 'income' | 'transfer' | 'borrow'>('expense')
-
 const walletId = ref<string | null>(null)
 const targetWalletId = ref<string | null>(null)
-
 const category = ref<string>('')
 const amount = ref<number | null>(null)
 const notes = ref<string>('')
 const transactionDate = ref<string>(getCurrentLocalDateTime())
 const isSubmitting = ref(false)
+
+// Cek status Mode Edit
+const isEditMode = computed(() => !!props.editingTransaction)
+
+// Autofill data lama jika sedang dalam mode edit
+onMounted(() => {
+  if (props.editingTransaction) {
+    const tx = props.editingTransaction
+    type.value = tx.type === 'debt_repayment' ? 'expense' : tx.type
+    walletId.value = tx.walletId
+    targetWalletId.value = tx.targetWalletId || null
+    category.value = tx.category || ''
+    amount.value = tx.amount
+    notes.value = tx.notes || ''
+    transactionDate.value = getCurrentLocalDateTime(tx.date)
+  }
+})
 
 // Filter dompet: Sembunyikan RDN jika Pemasukan ATAU Pengeluaran
 const availableWallets = computed(() => {
@@ -31,9 +51,9 @@ const availableWallets = computed(() => {
   return wallets.value
 })
 
-// Pasang default walletId pertama secara otomatis saat data dompet loaded/berubah
+// Default walletId pertama secara otomatis jika belum terpilih
 watch(availableWallets, (newWallets) => {
-  if (newWallets && newWallets.length > 0) {
+  if (newWallets && newWallets.length > 0 && !isEditMode.value) {
     const exists = newWallets.some(w => w.id === walletId.value)
     if (!walletId.value || !exists) {
       walletId.value = newWallets[0].id
@@ -52,7 +72,7 @@ const isWarungWallet = computed(() => {
 watch([type, walletId], () => {
   if ((type.value === 'income' || type.value === 'expense') && isWarungWallet.value) {
     category.value = 'Warung'
-  } else if (category.value === 'Warung' && !isWarungWallet.value) {
+  } else if (category.value === 'Warung' && !isWarungWallet.value && !isEditMode.value) {
     category.value = ''
   }
 })
@@ -72,7 +92,6 @@ const handleTypeChange = (newType: 'expense' | 'income' | 'transfer' | 'borrow')
   }
 
   if (newType === 'transfer' || newType === 'borrow') {
-    // Set target wallet default ke pilihan kedua jika ada
     const otherWallet = wallets.value?.find(w => w.id !== walletId.value)
     targetWalletId.value = otherWallet ? otherWallet.id : null
   } else {
@@ -100,11 +119,10 @@ const handleSubmit = async () => {
   try {
     isSubmitting.value = true
 
-    if (type.value === 'borrow') {
-      await borrowMoney(walletId.value, targetWalletId.value, amount.value, notes.value, selectedDate)
-    } else {
-      await addTransaction({
-        type: type.value,
+    if (isEditMode.value && props.editingTransaction?.id) {
+      // PERBAIKAN: Mode Edit Transaksi
+      await updateTransaction(props.editingTransaction.id, {
+        type: type.value as 'income' | 'expense' | 'transfer',
         walletId: walletId.value,
         targetWalletId: type.value === 'transfer' ? targetWalletId.value : undefined,
         category: type.value !== 'transfer' ? finalCategory : undefined,
@@ -112,12 +130,23 @@ const handleSubmit = async () => {
         notes: notes.value,
         date: selectedDate
       })
+    } else {
+      // Mode Tambah Transaksi Baru
+      if (type.value === 'borrow') {
+        await borrowMoney(walletId.value, targetWalletId.value, amount.value, notes.value, selectedDate)
+      } else {
+        await addTransaction({
+          type: type.value,
+          walletId: walletId.value,
+          targetWalletId: type.value === 'transfer' ? targetWalletId.value : undefined,
+          category: type.value !== 'transfer' ? finalCategory : undefined,
+          amount: amount.value,
+          notes: notes.value,
+          date: selectedDate
+        })
+      }
     }
 
-    amount.value = null
-    notes.value = ''
-    category.value = ''
-    transactionDate.value = getCurrentLocalDateTime()
     emit('saved')
   } catch (err: any) {
     alert(err.message || 'Gagal menyimpan transaksi')
@@ -131,7 +160,9 @@ const handleSubmit = async () => {
   <div class="bg-white p-4 rounded-t-2xl sm:rounded-xl shadow-lg space-y-4 max-w-md w-full mx-auto">
     <!-- Header -->
     <div class="flex justify-between items-center border-b pb-2">
-      <h3 class="text-lg font-bold text-gray-800">Tambah Transaksi</h3>
+      <h3 class="text-lg font-bold text-gray-800">
+        {{ isEditMode ? 'Edit Transaksi' : 'Tambah Transaksi' }}
+      </h3>
       <button 
         type="button"
         @click="emit('close')" 
@@ -141,7 +172,7 @@ const handleSubmit = async () => {
       </button>
     </div>
 
-    <!-- Tipe Transaksi (Tabs 4 Opsi) -->
+    <!-- Tipe Transaksi (Tabs Opsi) -->
     <div class="grid grid-cols-4 gap-1 bg-gray-100 p-1 rounded-lg">
       <button 
         type="button"
@@ -168,6 +199,7 @@ const handleSubmit = async () => {
         Transfer
       </button>
       <button 
+        v-if="!isEditMode"
         type="button"
         @click="handleTypeChange('borrow')"
         :class="type === 'borrow' ? 'bg-amber-500 text-white font-semibold shadow' : 'text-gray-600'"
@@ -266,14 +298,14 @@ const handleSubmit = async () => {
       />
     </div>
 
-    <!-- Tombol Simpan -->
+    <!-- Tombol Simpan / Update -->
     <button 
       type="button"
       @click="handleSubmit"
       :disabled="isSubmitting"
       class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition active:scale-98 disabled:opacity-50"
     >
-      {{ isSubmitting ? 'Menyimpan...' : 'Simpan Transaksi' }}
+      {{ isSubmitting ? 'Menyimpan...' : isEditMode ? 'Simpan Perubahan' : 'Simpan Transaksi' }}
     </button>
   </div>
 </template>
