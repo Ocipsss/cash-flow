@@ -50,6 +50,20 @@ export function useFinance() {
     })
   }
 
+  // 🗑️ HELPER: Hapus Database Lama & Re-populate Default Identitas UUID
+  async function resetDatabase() {
+    try {
+      await db.delete() // Hapus total database lokal dari IndexedDB
+      await db.open()   // Buka kembali agar event 'populate' ter-trigger ulang dari awal
+
+      await recalculateWalletBalances()
+      alert('Database berhasil di-reset ke versi bersih!')
+      window.location.reload()
+    } catch (err: any) {
+      alert('Gagal me-reset database: ' + (err.message || 'Error tidak diketahui'))
+    }
+  }
+
   // 2. Fungsi Pinjam Antar-Dompet
   async function borrowMoney(
     borrowerWalletId: string, 
@@ -245,6 +259,7 @@ export function useFinance() {
     exportBackup,
     importBackup,
     formatRupiah,
-    recalculateWalletBalances
+    recalculateWalletBalances,
+    resetDatabase
   }
 }

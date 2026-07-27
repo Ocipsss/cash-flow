@@ -11,7 +11,8 @@ const {
   payDebt, 
   exportBackup, 
   importBackup, 
-  formatRupiah 
+  formatRupiah,
+  resetDatabase
 } = useFinance()
 
 const showForm = ref(false)
@@ -70,6 +71,13 @@ const handlePayDebt = async (debtId: string) => {
     } catch (err: any) {
       alert(err.message || 'Gagal melunasi pinjaman')
     }
+  }
+}
+
+// Handler Reset Database dengan Konfirmasi
+const handleResetDatabase = async () => {
+  if (confirm('⚠️ PERINGATAN: Tindakan ini akan menghapus database lokal dan membuat ulang struktur dompet UUID yang bersih. Lanjutkan?')) {
+    await resetDatabase()
   }
 }
 </script>
@@ -175,9 +183,10 @@ const handlePayDebt = async (debtId: string) => {
         </div>
       </section>
 
-      <!-- Backup & Restore Data -->
-      <section class="pt-2">
-        <h2 class="text-sm font-bold text-gray-500 uppercase tracking-wide mb-3">Cadangan Data</h2>
+      <!-- Cadangan & Pengaturan Database -->
+      <section class="pt-2 space-y-3">
+        <h2 class="text-sm font-bold text-gray-500 uppercase tracking-wide">Cadangan & Pengaturan</h2>
+        
         <div class="grid grid-cols-2 gap-3">
           <button 
             @click="exportBackup"
@@ -201,6 +210,14 @@ const handlePayDebt = async (debtId: string) => {
             @change="handleFileChange"
           />
         </div>
+
+        <!-- Tombol Reset Database -->
+        <button 
+          @click="handleResetDatabase"
+          class="w-full p-2.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200/80 rounded-xl text-xs font-bold transition active:scale-95 text-center flex items-center justify-center gap-1.5"
+        >
+          <span>⚠️</span> Reset Database Lokal ke Versi UUID
+        </button>
       </section>
     </main>
 
