@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed } from 'vue'
 import { useFinance } from '@/composables/useFinance'
 import { syncToCloud } from '@/services/syncService'
 import TransactionForm from '@/components/TransactionForm.vue'
@@ -42,11 +42,6 @@ const handleManualSync = async () => {
     isSyncing.value = false
   }
 }
-
-// Otomatis sinkronisasi data saat aplikasi pertama kali dibuka
-onMounted(() => {
-  handleManualSync()
-})
 
 // Handler Import Backup
 const triggerImport = () => {
