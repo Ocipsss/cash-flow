@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useFinance } from '@/composables/useFinance'
 import type { Transaction } from '@/db/db'
 
@@ -10,7 +10,7 @@ const props = defineProps<{
 const emit = defineEmits(['close', 'saved'])
 const { wallets, categories, addTransaction, updateTransaction, borrowMoney, formatRupiah } = useFinance()
 
-// Format tanggal & waktu lokal presisi tanpa geser timezone UTC
+// Helper format tanggal ke format 'YYYY-MM-DDTHH:mm' (Lokal WIB)
 const formatToLocalDateTime = (isoString?: string) => {
   const d = isoString ? new Date(isoString) : new Date()
   const pad = (n: number) => n.toString().padStart(2, '0')
@@ -33,9 +33,9 @@ const isSubmitting = ref(false)
 
 const isEditMode = computed(() => !!props.editingTransaction)
 
-onMounted(() => {
-  if (props.editingTransaction) {
-    const tx = props.editingTransaction
+// REVISI PENTING: Gunakan Watcher untuk mengawasi Perubahan Prop Transaction yang Di-edit!
+watch(() => props.editingTransaction, (tx) => {
+  if (tx) {
     type.value = tx.type === 'debt_repayment' ? 'expense' : tx.type
     walletId.value = tx.walletId
     targetWalletId.value = tx.targetWalletId || null
@@ -43,8 +43,15 @@ onMounted(() => {
     amount.value = tx.amount
     notes.value = tx.notes || ''
     transactionDate.value = formatToLocalDateTime(tx.date)
+  } else {
+    // Mode Tambah Baru: Reset Form
+    type.value = 'expense'
+    category.value = ''
+    amount.value = null
+    notes.value = ''
+    transactionDate.value = formatToLocalDateTime()
   }
-})
+}, { immediate: true })
 
 const availableWallets = computed(() => {
   if (!wallets.value) return []
@@ -54,10 +61,9 @@ const availableWallets = computed(() => {
   return wallets.value
 })
 
-// PENTING: Kunci watcher agar TIDAK MENIMPA walletId kalau lagi Mode Edit!
+// Pasang default walletId HANYA jika bukan mode edit
 watch(availableWallets, (newWallets) => {
-  if (isEditMode.value) return // Skip auto-select kalau lagi edit
-  
+  if (isEditMode.value) return
   if (newWallets && newWallets.length > 0) {
     const exists = newWallets.some(w => w.id === walletId.value)
     if (!walletId.value || !exists) {
@@ -87,7 +93,6 @@ const filteredCategories = computed(() => {
 
 const handleTypeChange = (newType: 'expense' | 'income' | 'transfer' | 'borrow') => {
   type.value = newType
-  
   if ((newType === 'income' || newType === 'expense') && isWarungWallet.value) {
     category.value = 'Warung'
   } else {
@@ -117,8 +122,12 @@ const handleSubmit = async () => {
   }
   if (!amount.value || amount.value <= 0) return alert('Nominal harus lebih dari 0!')
 
-  // Konversi input datetime-local ke ISO String yang presisi
-  const selectedDate = new Date(transactionDate.value).toISOString()
+  // REVISI PENTING: Trik agar string datetime-local tidak ter-offset jam-nya saat konversi ke ISO
+  const [datePart, timePart] = transactionDate.value.split('T')
+  const [year, month, day] = datePart.split('-').map(Number)
+  const [hours, minutes] = timePart.split(':').map(Number)
+  const exactLocalDate = new Date(year, month - 1, day, hours, minutes)
+  const selectedDate = exactLocalDate.toISOString()
 
   try {
     isSubmitting.value = true
@@ -157,7 +166,6 @@ const handleSubmit = async () => {
   }
 }
 </script>
-
 
 <template>
   <div class="bg-white p-4 rounded-t-2xl sm:rounded-xl shadow-lg space-y-4 max-w-md w-full mx-auto">
